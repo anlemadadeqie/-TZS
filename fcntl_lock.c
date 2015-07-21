@@ -4,11 +4,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <stdlib.h>
 
 /*自定义的错误处理函数*/
 void my_err(const char *err_string, int line)
 {
-	fprintf(stderr, "line:%d", line);
+	fprintf(stderr, "line:%d ", line);
 	perror(err_string);
 	exit(1);
 }
@@ -84,15 +85,15 @@ int main()
 	{
 		my_err("open",__LINE__);
 	}
-	if((fd=write(fd, "test lock", 10)) != 10)
+	if(write(fd, "test lock", 10) != 10)
 	{
 		my_err("write", __LINE__);
 	}
 	
         /*初始化lock结构*/
 	memset(&lock, 0, sizeof(struct flock));
-	lock.l_start = SEEK_SET;
-	lock.l_whence = 0;
+	lock.l_start = 0;
+	lock.l_whence = SEEK_SET;
 	lock.l_len = 0;
 
 	/*设置读锁*/
