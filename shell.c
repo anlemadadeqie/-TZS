@@ -11,6 +11,7 @@
 #define normal		0	/*一般的命令*/
 #define out_redirect	1	/*输出重定向*/
 #define in_redirect	2	/*输入重定向*/
+#define	have_pipe	3	/*命令中有管道*/
 
 void print_prompt();						/*打印提示符*/
 void get_input(char *);						/*得到输入的命令*/
@@ -37,7 +38,7 @@ int main(int argc, char **argv)
 	{
 	/*将buf所指向的空间清零*/
 		memset(buf, 0 , 256);
-		print_prompt();
+ 		print_prompt();
 		get_input(buf);
 		/*若得到的命令是exit或logout则退出程序*/
 		if (strcmp(buf, "exit\n") == 0 || strcmp(buf, "logout\n") == 0)
@@ -50,13 +51,11 @@ int main(int argc, char **argv)
 		explain_input (buf, &argcount, arglist);
 		do_cmd (argcount, arglist);
 	}
-	
 	if (buf!= NULL)
 	{
 		free(buf);
 		buf = NULL;
 	}
-	
 	exit(0);
 }
 
@@ -129,6 +128,7 @@ void do_cmd(int argcount, char arglist[100][256])
 	int	status;
 	int	fd;
 	char*	arg[argcount+1];
+	char*   argnext[argcount+1];
 	pid_t	pid;
 
 	/*将命令取出来*/
@@ -137,8 +137,8 @@ void do_cmd(int argcount, char arglist[100][256])
 		arg[i] = (char *)arglist[i];
 	}
 	arg[argcount] = NULL;
-
-	/*查看命令行是否有后台运行符*/
+	
+   	/*查看命令行是否有后台运行符*/
 	for (i=0; i<=argcount-2; i++)
 	{
 		if (strcmp(arg[i], "&") == 0)
@@ -154,12 +154,11 @@ void do_cmd(int argcount, char arglist[100][256])
 			if ( i == argcount-1)
 			{
 				background = 1;
-				arg[argcount-1] == NULL;
+				arg[argcount-1] = NULL;
 				break;
 			}
 		}
 	}
-	
 	for (i=0; arg[i] != NULL; i++)
 	{
 		if (strcmp(arg[i], ">") == 0)
@@ -177,7 +176,17 @@ void do_cmd(int argcount, char arglist[100][256])
 			if ((arg[i+1] == NULL) || (i == 0))
 				flag++;
 		}
-	}
+
+		if  (strcmp(arg[i], "|") == 0)
+		{
+			flag++;
+			how = have_pipe;
+			if (arg[i+1] == NULL)
+				flag++;
+			if (i == 0)
+				flag++;
+		}	
+	}	
 
 /*如果flag大于1,说明命令中含有多个>,< 符号,本程序不支持这样的命令,或者命令的格式不正确*/
 	if (flag > 1)
@@ -208,6 +217,23 @@ void do_cmd(int argcount, char arglist[100][256])
 		}
 	}
 	
+
+	if (how == have_pipe)
+	{
+		for (i=0; arg[i] != NULL; i++)
+		{
+			if (strcmp(arg[i], "|") == 0)
+			{
+				arg[i] == NULL;
+				int j;
+				for (j=i+1; arg[j]!=NULL; j++)
+				{
+					argnext[j-i-1]=arg[j];
+				}
+				argnext[j-i-1] = arg[j];
+			}
+		}
+	}
 
 	if ((pid = fork()) < 0)
 	{
@@ -257,9 +283,52 @@ void do_cmd(int argcount, char arglist[100][256])
 				exit(0);
 			}
 			break;
-		default:
+		case 3:
+			if (pid == 0)
+			{
+				int pid2;
+				int status2;
+				int fd2;
+				
+				if ((pid2 = fork()) < 0)
+				{
+					printf("fork2 error\n");
+					return;
+				}
+				
+				if (pid2 == 0)
+				{	
+					if (!(find_command(arg[0])))
+					{
+						printf("%s: command not found\n", arg[0]);
+						exit(0);
+					}
+					
+					fd2 = open("/tmp/hjh",O_WRONLY|O_CREAT|O_TRUNC, 0644);
+					dup2(fd2,1);
+					execvp(arg[0], arg);
+					exit(0);
+				}
+
+				if (waitpid(pid2, &status2, 0) == -1)
+				{	
+					printf("wait for child process error1\n");
+				}
+
+				if (find_command(argnext[0]) == 0)
+				{
+					printf("%s: command not found\n", argnext[0]);
+					exit(0);
+				}	
+				fd2 = open("/tmp/hjh",O_RDONLY);
+				dup2(fd2, 0);
+				execvp(argnext[0], argnext);
+				exit(0);
+			}
 			break;
-	}
+	default:
+			break;			
+	}	
 
 	/*若命令中有&,表示后台执行,父进程直接返回,不等待子进程结束*/
 	if (background == 1)
